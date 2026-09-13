@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: srpska-agora-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agora
+      POSTGRES_PASSWORD: agora
+      POSTGRES_DB: srpska_agora
+      # Everything is stored as timestamptz in UTC; Europe/Belgrade is applied
+      # only when the application formats dates for display or editorial windows.
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "5434:5432"
+    volumes:
+      # Postgres 18 images place the cluster in a major-version subdirectory
+      # beneath /var/lib/postgresql, so the mount goes there, not at .../data.
+      - agora-pgdata:/var/lib/postgresql
+      - ./docker/db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agora -d srpska_agora"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  agora-pgdata:

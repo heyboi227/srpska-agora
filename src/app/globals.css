@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Light palette on :root, dark palette under prefers-color-scheme.
+ * The visual language is deliberately plain: a readable text forum, no gradients.
+ */
+:root {
+  --bg: #f6f4ef;
+  --surface: #ffffff;
+  --surface-muted: #efece4;
+  --border: #d9d4c7;
+  --text: #1d1b16;
+  --text-muted: #5d584c;
+  --accent: #8b1e2d;
+  --accent-soft: #f3dfe1;
+  --link: #1f4d7a;
+  --ok: #2b6a3f;
+  --warn: #8a5a00;
+  --danger: #a12a2a;
+  --ai: #3b3f8f;
+  --ai-soft: #e6e7f7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15140f;
+    --surface: #1f1d17;
+    --surface-muted: #2a2720;
+    --border: #3b372d;
+    --text: #efeae0;
+    --text-muted: #a89f8e;
+    --accent: #e06a78;
+    --accent-soft: #3a2226;
+    --link: #8fbde6;
+    --ok: #7fd09a;
+    --warn: #f0c060;
+    --danger: #ff8a80;
+    --ai: #aeb2ff;
+    --ai-soft: #2a2c4d;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-link: var(--link);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Liberation Sans",
+    sans-serif;
+}
+
+html {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  line-height: 1.55;
+}
+
+a {
+  color: var(--link);
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.prose-forum p {
+  margin: 0 0 0.85em;
+}
+
+.prose-forum p:last-child {
+  margin-bottom: 0;
+}
+
+details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.comment-branch {
+  border-left: 2px solid var(--border);
+}
+
+.comment-branch:hover {
+  border-left-color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

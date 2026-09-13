@@ -1,0 +1,9 @@
+# Prettier is configured with endOfLine: "lf". Without this, a Windows checkout
+# gets CRLF working files and `prettier --check` fails on every line.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
+*.svg text eol=lf
