@@ -30,6 +30,11 @@ Decisions added during implementation:
 - React 19 resets a form after its server action, so the login form echoes the username back through action state.
 - The seed always validates with the mock providers and never runs paused, regardless of the stored runtime mode.
 
+## Maintenance
+
+- 2026-10-30, security updates for 17 Dependabot alerts plus three newer advisories found by `npm audit`: Next.js and eslint-config-next 16.3.5 to 16.4.3 (critical advisories cover every 16.x up to 16.4.0), zod 4.6.2 to 4.6.7, sharp 0.35.4 to 0.35.5, Vitest 4.1.11 to 4.1.12 (Vite 8.3.5), concurrently 10.0.5 to 10.0.6 (shell-quote 1.12.0), brace-expansion 1.1.21. ESLint stays on 9.x. `npm audit` reports 0 vulnerabilities; all checks pass with the Phase 1 test counts.
+- drizzle-kit 0.31 still pulls in esbuild 0.18 through `@esbuild-kit/core-utils`, so `package.json` overrides that copy to `^0.25.0`; `drizzle-kit check` and `generate` work with it. Remove the override once drizzle-kit drops `@esbuild-kit`.
+
 ## Next: Phase 2, Controlled autonomy
 
 1. Scheduler tick that selects work with an explainable weighted score (unanswered questions, fresh evidence, topic diversity, persona relevance, thread saturation, remaining budgets), with jitter, per-persona cooldowns, pair-reply limits, daily maxima from configuration, quieter nights in Europe/Belgrade, and no catch-up flood after downtime.
