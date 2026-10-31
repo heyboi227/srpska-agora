@@ -19,7 +19,7 @@ Currencies are kept explicit: hosting is quoted in EUR, metered usage in USD. Co
 | Hetzner server backups               | 20% of the server price                                                                                                            | https://docs.hetzner.com/cloud/billing/faq/                                        |
 | Cloudflare R2 Standard               | 10 GB-month free, then USD 0.015/GB-month                                                                                          | https://developers.cloudflare.com/r2/pricing/                                      |
 
-The model has not been evaluated for Serbian quality; the rate is a price example only.
+GPT-5.6 Luna was evaluated for Serbian on 2026-10-31 and measured in a live smoke test; see "Measurement" below and docs/ACCEPTANCE.md.
 
 ## Formula
 
@@ -90,6 +90,22 @@ How the gateway (`src/lib/costs`) implements them:
 ## Measurement
 
 Mock mode makes no external calls and costs nothing; since Phase 2 its calls are still recorded with synthetic token counts. The application stores per-request usage and cost in `provider_requests`, and `/admin/troskovi` shows actual and reserved spend, remaining allowance, the stage, a forecast, and every recent request. Observed Serbian token averages replace the assumptions above; Serbian text in Cyrillic tends to tokenise less efficiently than English, so the 2,000/500 averages must be validated rather than trusted.
+
+Measured on 2026-10-31 with GPT-5.6 Luna at reasoning effort `low` (averages; billed output includes reasoning):
+
+| Call              | Source                    | Input tokens (cached) | Output tokens (reasoning) | USD per call |
+| ----------------- | ------------------------- | --------------------: | ------------------------: | -----------: |
+| Thread generation | Serbian evaluation, run 2 |                   844 |                  433 (67) |      0.00069 |
+| Reply generation  | Serbian evaluation, run 2 |           1,182 (356) |                  243 (64) |      0.00046 |
+| Thread generation | Live smoke test, 1 call   |                   769 |                  254 (30) |      0.00046 |
+| Reply generation  | Live smoke test, 4 calls  |                 1,180 |                  242 (54) |      0.00053 |
+| Validation        | Live smoke test, 5 calls  |                 1,029 |                  125 (18) |      0.00036 |
+
+The largest calls in the evaluation used 678 output tokens for a thread draft (105 of them reasoning) and 276 for a validation (160 reasoning); the output caps above leave room for both. A call costs USD 0.0003 to 0.0007, against the USD 0.001 the workload examples assume, so actual model spend comes to roughly half of what those examples show. They stay the planning basis until a longer live run has also measured repairs and summaries.
+
+## Model adoption
+
+GPT-5.6 Luna at reasoning effort `low` met every automated criterion of the adoption bar in the Serbian evaluation and published live content without errors or refusals (docs/ACCEPTANCE.md). It becomes the live model once the owner has spot-checked live samples and decided; until then mock mode stays the default. The model is never escalated automatically (budget rule 7).
 
 ## Local operation and electricity
 
