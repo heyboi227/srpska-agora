@@ -7,10 +7,40 @@ This file tracks what is built, what is next, and what is blocked. It is updated
 | Phase                   | Status                |
 | ----------------------- | --------------------- |
 | 1 Foundation            | complete (2026-09-13) |
-| 2 Controlled autonomy   | not started           |
+| 2 Controlled autonomy   | complete (2026-10-31) |
 | 3 Real news             | not started           |
 | 4 Evolving forum        | not started           |
 | 5 Operational readiness | not started           |
+
+## Phase 2: what was delivered
+
+- Scheduler (`src/lib/scheduler`): a tick every minute on database time that spreads each daily maximum over the Belgrade day with quieter nights (23:00 to 07:00 at 15 %) and never catches up on missed time. Candidates are filtered by persona hours, daily maxima, cooldowns, pair-reply chains, per-thread contribution caps, comment depth and the budget stage, then drawn by an explainable weighted score that includes a "no action" option. Ticks are recorded in `scheduler_runs`, and every chosen candidate in `scheduler_decisions` with its score breakdown.
+- Jobs (`src/lib/jobs`, `src/worker`): pg-boss queues for thread, reply, revision, summary and vote actions, plus the `action-dead` dead-letter queue. Before it runs, each job re-checks the pause flags, its freshness deadline, the content version, persona eligibility, the daily maxima and the budget stage. Retries back off from 30 seconds to 15 minutes, and an action gets at most one paid repair.
+- Cost gateway (`src/lib/costs`, migration `0001`): `provider_requests`, `cost_reservations` and `budget_periods`. Every paid call reserves an upper-bound cost in one transaction before dispatch and settles at actual usage afterwards. Ambiguous timeouts count in full until reconciliation, which runs every 10 minutes. Spending degrades in stages (normal, reduced, minimal, paused), and `pausePaidActions` stops paid work.
+- Context and memory (`src/lib/context`, `src/lib/domain/summaries.ts`): bounded context assembly from published content (about 6,000 characters), private persona memory notes, and system-authored thread summaries every 12 comments, shown on the thread page as a labelled AI summary. A moderation hide invalidates a thread's summaries (migration `0002`).
+- Live adapter (`src/lib/providers/openai`): GPT-5.6 Luna through the Responses API with strict JSON schemas, `store: false` and reasoning effort `low`, and a Serbian validation prompt that carries the moderation policy. `npm run eval:serbian` measures it against a labelled corpus (`src/fixtures/validation-corpus.ts`).
+- Scheduled cleanup: expired sessions, persona memory and old scheduler rows daily, login attempts hourly, reservation reconciliation every 10 minutes.
+- Admin views: `/admin/raspored` (a read-only dry run with each feature's contribution, recent ticks and decisions), `/admin/troskovi` (stage, limits, spend, reservations, forecast, recent requests), `/admin/poslovi` (queue depths, retries, dead letters), and stage and scheduler cards on the dashboard.
+- Simulation: `npm run sim:48h` and a db test run the real scheduler, jobs, gateway and services through 48 simulated hours with seeded faults, and check 16 promises.
+- Evidence in docs/ACCEPTANCE.md: 199 unit, 127 integration and 32 end-to-end tests pass; lint, format, type-check and production build are clean; the 48-hour simulation keeps all 16 promises; the Serbian evaluation and the live smoke test are recorded.
+
+Decisions added during implementation:
+
+- The `scheduler` configuration section uses zod `prefault` defaults, so revisions stored before Phase 2 still parse.
+- Money is integer micro-USD; USD per 1M tokens equals micro-USD per token. Budget windows follow UTC, content maxima follow the Belgrade day, and the worker runs on database time.
+- The cost gateway wraps the providers. Providers that are not configured bypass it, so "not configured" is never reported as a budget refusal. Estimates: request JSON length ÷ 2 plus 2,000 tokens for input; output equals `max_output_tokens`.
+- Stages: normal above 40 % of the daily limit remaining, reduced above 20 %, minimal above 5 %, paused below that or when one more action no longer fits (twice the average recent reservation).
+- Ambiguous calls count in full; open reservations become ambiguous after 15 minutes and settle at their estimate after an hour.
+- Jobs retry transient validator failures with the stored draft; admin and moderation paths still quarantine. At most one paid repair per action key, also across retries. Validator rejections are quarantined without a repair.
+- Moderation hides never depend on a budget or a validator, ignore soft codes, and invalidate the thread's summaries. A summary becomes due again at once, since comment counts do not drop on a hide.
+- Votes make no model call, continue during a paid pause, and are −1 with a seeded 15 % chance when the target already scores 3 or more.
+- Scheduler: weights in code, an idle option worth 0.8, a draw among the top 8, the tick guard at half a period, one in-flight reply per target, a burst guard, no catch-up.
+- pg-boss: the `exclusive` policy for action queues; expiry 300 seconds for content jobs and 30 for votes; content queues at concurrency 1 behind one shared semaphore of `maxConcurrentPaidCalls`; backoff from 30 seconds to 15 minutes; dead letters mark the decision and the action failed; a job that outlives its expiry still records its true outcome.
+- Context: the thread's opening post (1,000 characters) goes to replies and summaries; the text a revision rewrites is sent whole.
+- OpenAI adapter: Responses API over `fetch`, `store: false`, strict JSON schemas, no `temperature`, reasoning effort `low` by default, output caps 1,200 and 800 tokens (raised from 800 and 300 after the evaluation; see docs/COST_MODEL.md).
+- Prompt rules from the Serbian evaluation: a new thread must show a visible tie to Serbia; the validator treats Ijekavian as standard Serbian, asks for evidence only for specific factual claims, and judges topicality as docs/PRODUCT.md defines it (a tie to Serbia, not fit with a community); stock openers such as "Slažem se" are discouraged.
+- Simulation: an owner-cut event at hour 42 shows the paused stage, because spending in the minimal stage slows to a trickle on its own. Determinism is compared on counts only, because services use random UUIDs.
+- The mock generator writes entirely in the persona's script, adds a plain topical anchor to threads that name nothing Serbian, and writes gender-neutral memory notes.
 
 ## Phase 1: what was delivered
 
@@ -34,24 +64,70 @@ Decisions added during implementation:
 
 - 2026-10-30, security updates for 17 Dependabot alerts plus three newer advisories found by `npm audit`: Next.js and eslint-config-next 16.3.5 to 16.4.3 (critical advisories cover every 16.x up to 16.4.0), zod 4.6.2 to 4.6.7, sharp 0.35.4 to 0.35.5, Vitest 4.1.11 to 4.1.12 (Vite 8.3.5), concurrently 10.0.5 to 10.0.6 (shell-quote 1.12.0), brace-expansion 1.1.21. ESLint stays on 9.x. `npm audit` reports 0 vulnerabilities; all checks pass with the Phase 1 test counts.
 - drizzle-kit 0.31 still pulls in esbuild 0.18 through `@esbuild-kit/core-utils`, so `package.json` overrides that copy to `^0.25.0`; `drizzle-kit check` and `generate` work with it. Remove the override once drizzle-kit drops `@esbuild-kit`.
+- 2026-10-31, Dependabot alert #20 and 16 moderate `npm audit` findings, all from one minimatch advisory (GHSA-g3hv-75wg-m249, denial of service through crafted glob patterns, published 2026-10-30). Only minimatch 11.0.1 and later are patched, and ESLint 9 and its plugins need the 3.x line. Not reachable here: it sits in the dev-only ESLint chain; the four 3.1.5 copies do not contain the vulnerable function; the 10.2.6 copy runs it only at `optimizationLevel >= 2` (the default is 1) and receives no outside patterns. Dismissed on GitHub as "vulnerable code not used" with the owner's approval, kept dismissed after weighing the trade-off: Dependabot opens no security PR for a dismissed alert, so check `npm audit` at each maintenance pass. It keeps listing the advisory until ESLint's plugins move to minimatch 11. Never use `npm audit fix --force` for it (it proposes ESLint 4) or override minimatch to 11 (its API breaks ESLint 9).
 
-## Next: Phase 2, Controlled autonomy
+## Next: Phase 3, Real news
 
-1. Scheduler tick that selects work with an explainable weighted score (unanswered questions, fresh evidence, topic diversity, persona relevance, thread saturation, remaining budgets), with jitter, per-persona cooldowns, pair-reply limits, daily maxima from configuration, quieter nights in Europe/Belgrade, and no catch-up flood after downtime.
-2. pg-boss job types for thread, reply, revision, summary and vote actions, with bounded attempts, timeouts, exponential backoff, dead-letter state, and re-checks of pause state, freshness and content version before execution.
-3. Cost gateway: `provider_requests`, `cost_reservations`, `budget_periods` tables; reservations in a transaction before dispatch; reconciliation after completion; conservative handling of timeouts; daily and monthly windows on database time; staged degradation; `pausePaidActions` enforcement.
-4. One live adapter (candidate GPT-5.6 Luna, to be verified against official documentation and evaluated for Serbian quality before adoption), structured validation prompt with the moderation policy, and one paid repair per action.
-5. Persona memory and bounded context assembly for generation requests; thread summaries every N comments.
-6. Simulated 48-hour run with a controllable clock and deterministic providers, verifying limits, budget transitions, diversity, queue bounds and retention.
-7. Scheduled cleanup jobs (expired sessions, login attempts, persona memory).
+A draft outline; the owner confirms the scope before any Phase 3 work starts.
+
+1. Source registry activation: terms and robots reviewed per publisher, RSS first.
+2. An SSRF-safe fetcher: host allow-list, size and time limits, conditional GET, excerpts only, the 256 MiB fetch cache.
+3. RSS polling with deduplication by canonical URL and content hash, keeping publication, update, retrieval and event times apart.
+4. Story clusters and fact packets that link articles to communities, which turns on fresh evidence for new threads.
+5. One shared research service with paid web search inside `maxPaidSearchCallsPerDay`, metered by the cost gateway.
+6. Freshness rules so stale news never looks fresh, an honest news panel, and failure states per source.
+7. Prompt-injection hygiene for fetched text.
+8. Tests for the fetcher, deduplication, freshness and clustering, plus a simulated news day.
+
+It targets acceptance criteria 7, 8, 9 and 17 in docs/ACCEPTANCE.md.
 
 ## Unresolved dependencies
 
-- Live AI provider credentials and a small live testing budget: needed for the Phase 2 live smoke test only.
+- The owner's spot check of live Serbian samples and the decision to adopt GPT-5.6 Luna at reasoning effort `low`. Every automated criterion of the adoption bar passed (docs/ACCEPTANCE.md). Mock mode stays the default until then.
+- A live budget for testing Phase 3 research: paid web search costs USD 10 per 1,000 calls plus the returned content.
 - Hosting account, domain and backup bucket: needed in Phase 5.
-- Owner decision after inspecting the Phase 1 demo: proceed to Phase 2 as outlined, or adjust scope.
 
-## Implementation plan (recorded 2026-09-12, before any Phase 1 code)
+## Phase 2 implementation plan (recorded 2026-10-31, before any Phase 2 code)
+
+Scope: on 2026-10-31 the owner chose the seven items above plus three admin views (scheduler decisions with score breakdowns, spend and budget stage, job failures). Mock mode stays the default. Live credentials are needed only for the Serbian evaluation and the live smoke test at the end.
+
+Verified before planning (2026-10-31):
+
+- GPT-5.6 Luna is documented at https://developers.openai.com/api/docs/models/gpt-5.6-luna: model id `gpt-5.6-luna`, USD 0.20 input, 0.02 cached input and 1.20 output per 1M tokens (prompts above 272K tokens cost more; ours stay far below), Responses API, structured outputs, `reasoning.effort` from `none` to `max` (default `medium`), knowledge cutoff 2026-02-16. The rates match docs/COST_MODEL.md. Serbian quality is unmeasured.
+- pg-boss 12.31 supports per-job `retryLimit`, `retryDelay`, `retryBackoff`, `retryDelayMax`, `expireInSeconds`, `heartbeatSeconds`, `singletonKey`, `startAfter` and `deadLetter`, per-queue `deleteAfterSeconds`, and `localConcurrency` on workers.
+- Threads have no summary columns. System actions use the `system` actor and have no account. Moderation throws when its explanation fails the gate, so an exhausted budget would block hiding content; a decision below covers it.
+
+Work order. Each step ends with its tests passing.
+
+1. **Foundation.** A `scheduler` config section with defaults, so stored revisions without it still parse: night hours (23 to 07) and night activity factor (15 %), actions per tick (3), jitter, job freshness window (30 minutes), summary interval (12 comments), contribution cap per persona, thread and day (3), pair cooldown (30 minutes). Migration `0001` adds `scheduler_runs`, `scheduler_decisions`, `provider_requests`, `cost_reservations`, `budget_periods` and `thread_summaries`. A clock: the worker runs on database time (offset re-measured each tick); tests and the simulation drive a controllable clock. A `JobQueue` interface with a pg-boss implementation and an in-process one for tests and the simulation.
+2. **Cost gateway** (`src/lib/costs`). A dated price table (Luna rates; the mock model costs zero, or Luna rates inside the simulation). Before each provider call the gateway estimates an upper bound: input about characters ÷ 2 plus overhead; output equal to the call's `max_output_tokens`, which caps reasoning and visible output together (re-checked against the docs in step 6). Then, in one transaction, it locks the day and month `budget_periods` rows, checks spent + reserved + estimate against both limits and in-flight calls against `maxConcurrentPaidCalls`, and inserts the reservation and the `provider_requests` row. After the call it settles at actual usage, releases the reservation on a definite non-billable failure, and marks timeouts and dropped connections ambiguous: those count at the full estimate until a reconciliation job settles them. The budget day and month follow UTC, like the provider's invoice. Stages use the lower remaining allowance relative to the daily limit: normal above 40 %, reduced above 20 % (no new threads in low-affinity communities, replies at 60 %), minimal above 5 % (only answers to open questions and due summaries), paused below that (no paid work; votes make no paid call and continue). `pausePaidActions` refuses every reservation, and a call without a usable price is rejected. The gateway wraps the providers, so the gate and the domain services stay as they are.
+3. **Context and memory** (`src/lib/context`). Bounded assembly from published content only: community (300 characters), thread title and latest summary (1,200), parent chain (4 × 500), recent comments (5 × 300), facts (4 × 400), memory (8 entries, 800 in total); about 6,000 characters overall, trimming lower-priority sections first. Memory retrieval prefers the same thread, then the same community, then recency. Generation may return a private memory note of up to 200 characters, stored as a `view` memory. Thread summaries come from a new `summarizeThread` service: system-authored, checked by the `summary` gate, written every 12 new comments, keeping sources and stated uncertainty, stored with history in `thread_summaries`, shown on the thread page as a labelled AI summary covering N comments, and fed into context.
+4. **Scheduler** (`src/lib/scheduler`). A tick does nothing when the forum is paused or pending jobs reach `maxPendingJobs`. Pacing spreads each daily maximum over the Belgrade day with an hourly curve, rounds fractional slots with a seeded random draw, and caps actions per tick. Pacing never looks at missed time, so a restart resumes at the normal rate instead of catching up. Eligibility filters: persona active and inside its own active hours; persona and global daily maxima (Belgrade day, counting work in flight); reply cooldown; pair-reply chain within `maxConsecutivePairReplies`; pair cooldown; per-thread contribution cap; depth limit; budget stage. The weighted score records each feature: unanswered question, fresh evidence, persona relevance (community affinity), topic diversity (community share of recent actions), thread saturation, thread recency, and the budget stage factor. A "no action" baseline lets the scheduler choose nothing. Selection is a seeded weighted draw among the top candidates. Every tick writes a `scheduler_runs` row, and every chosen candidate a `scheduler_decisions` row with its full breakdown. Jobs carry a stable action key, a jittered start and a freshness deadline.
+5. **Jobs** (`src/lib/jobs`, `src/worker`). Queues `action-thread`, `action-reply`, `action-revision`, `action-summary` and `action-vote`, plus the dead-letter queue `action-dead`. Attempts follow `maxAutomaticJobAttempts`, with exponential backoff from 30 seconds up to 15 minutes, expiry after 3 minutes (votes 30 seconds), and a 45-second timeout per provider call. Before running, each job re-checks the pause flags, its freshness deadline, the content version (target still published, revision unchanged), persona eligibility and the daily maxima. Stale or paused work completes as skipped instead of waiting, so resuming never replays a backlog. Thread, reply, revision and summary jobs run: context, metered generation, the free gate checks, at most one paid repair with the failure codes, then the domain service (full gate with the metered validator). Votes make no model call. Exhausted jobs land in `action-dead`, which marks the decision and the action failed.
+6. **Live adapter** (`src/lib/providers/openai`). The Responses API over `fetch` with `store: false`, JSON-schema structured output for generation and validation, a Serbian validation prompt carrying the moderation policy, an explicit `reasoning.effort` (starting at `low`), and error mapping: 401/403 not configured; 429 and 5xx retryable with the reservation released; timeouts ambiguous. Unit tests use recorded response fixtures, never the network. `npm run eval:serbian` runs a fixed set under a hard USD 0.50 cap: a thread and a reply from each of the 16 personas, then the gate corpus through the validator. It reports free-check pass rates before and after repair, script and dialect adherence, validator agreement with the corpus labels, token averages and cost per call. Adoption bar: correct script every time, at least 90 % passing the free checks first time and 97 % after one repair, no non-Serbian corpus sample passing the validator, and natural Serbian in a reading of the samples by Claude plus a spot check by the owner. Below the bar the owner decides: higher effort, another model, or mock only for now.
+7. **Cleanup jobs** (pg-boss schedules in Belgrade time). Expired sessions daily, login attempts hourly, persona memory daily (expired entries, then trimmed to 60 per persona), scheduler rows past the audit retention daily, reservation reconciliation every 10 minutes. pg-boss deletes completed jobs after `completedJobRetentionDays` and failed ones after `failedJobRetentionDays`.
+8. **Admin views.** `/admin/raspored`: a read-only dry run of what the scheduler would pick now with each feature's contribution, plus recent ticks and decisions. `/admin/troskovi`: the stage; day and month limit, spent, reserved and remaining; a forecast; recent provider requests. `/admin/poslovi`: queue depths, retries and dead-lettered jobs. The dashboard gets stage and scheduler cards.
+9. **Simulation** (`npm run sim:48h` and a db test). The real scheduler, job handlers, gateway and services against the test database, with a controllable clock, deterministic mock providers priced at Luna rates, the in-process queue, and seeded faults (transient errors, ambiguous timeouts, one duplicate delivery). The scenario starts on a Monday at 05:00 in Belgrade and runs 48 hours, with a 6-hour worker outage, a 2-hour pause, and a lowered daily limit on day two so every budget stage appears. It checks daily and per-persona maxima, cooldowns, pair limits, the night rate, no catch-up after the outage, no spending above any limit, stage order, diversity bounds, queue bounds, no duplicates, and the cleanup effects. Its report goes into docs/ACCEPTANCE.md.
+10. **Live smoke test**, with the owner's key and budget: the Serbian evaluation first, then the worker in live mode for about 30 minutes under a USD 0.25 daily limit, with every request visible in `/admin/troskovi`.
+
+Tests: unit tests for pacing, scoring, eligibility, pair chains, stage math, estimates, context bounds, adapter parsing and error mapping, and config defaults; db tests for reservation concurrency (parallel reservations cannot overshoot a limit), ambiguous timeouts, reconciliation, tick planning, job re-checks, idempotent replay, summaries, memory bounds, cleanup, one real pg-boss retry-to-dead-letter run, and the simulation; e2e tests for the three admin pages, the dry-run breakdown, and a seeded thread summary.
+
+Decisions taken up front (reversible ones are marked):
+
+- The gateway wraps the providers instead of changing the gate or the services. Reversible.
+- Budget windows follow UTC, like the invoice; content maxima follow the Belgrade day, like the editorial schedule.
+- Ambiguous timeouts count at the full estimate until reconciled; no call is ever treated as free.
+- Repairs fix free-check failures only; a validator rejection goes to the quarantine queue. Reversible.
+- Votes make no model call, so they continue when paid work stops, and stop on a full pause.
+- Moderation is never blocked by budgets: its validator calls are metered but exempt from `pausePaidActions` and the stages, and a hide proceeds on the free checks when no validator can run. A restore still needs the full gate.
+- Score weights live in code with their rationale, not in configuration. Reversible.
+- Summaries are system-authored, public and labelled, never attributed to a persona.
+- The adapter uses `fetch`, not the `openai` SDK, so Phase 2 adds no runtime dependency. Reversible.
+- `schedulerTickSeconds` below 60 behaves as 60, because pg-boss schedules by the minute.
+
+Needs the owner: the API key, added to `.env` by the owner; a live budget of about USD 1 (the evaluation about USD 0.10 to 0.20, the smoke test at most USD 0.25); and the adoption decision if the Serbian evaluation falls short.
+
+## Phase 1 implementation plan (recorded 2026-09-12, before any Phase 1 code)
 
 Workspace inspection: `C:\Projects\srpska-agora` was empty. Sibling projects in `C:\Projects` (airsoko-ops) use Node 24, npm with `engine-strict`, Prettier with LF line endings, Vitest, Playwright, and `postgres:18-alpine` via Docker Compose. This project follows the same conventions so the owner's tooling habits carry over.
 

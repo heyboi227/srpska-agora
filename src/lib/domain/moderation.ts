@@ -1,7 +1,13 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { DbOrTx } from "@/lib/db/client";
-import { agentActions, comments, moderationDecisions, threads } from "@/lib/db/schema";
-import { runPublicationGate } from "@/lib/gates/publication-gate";
+import {
+  agentActions,
+  comments,
+  moderationDecisions,
+  threads,
+  threadSummaries,
+} from "@/lib/db/schema";
+import { isSoftCode, runPublicationGate } from "@/lib/gates/publication-gate";
 import { actorAccountId, requireAdminOrSystem, type Actor } from "./actors";
 import type { ServiceContext } from "./context";
 import { DomainError } from "./errors";
@@ -31,7 +37,19 @@ export async function moderateContent(params: ModerateContentParams, ctx: Servic
     },
     { config: ctx.config, validator: ctx.providers.validation },
   );
-  if (report.outcome !== "pass") {
+  // Hiding content must never depend on a provider or a budget: when only the
+  // validator could not run, a hide proceeds and the codes are kept in the
+  // decision record. A restore keeps the full gate.
+  const validatorUnavailable = new Set([
+    "validator_budget_refused",
+    "validator_unavailable",
+    "validator_not_configured",
+  ]);
+  // Soft codes are recorded but never block, so they do not count against a hide.
+  const hardCodes = report.codes.filter((code) => !isSoftCode(code));
+  const onlyValidatorMissing =
+    hardCodes.length > 0 && hardCodes.every((code) => validatorUnavailable.has(code));
+  if (report.outcome !== "pass" && !(params.action === "hide" && onlyValidatorMissing)) {
     throw new DomainError(
       "gate_quarantined",
       "Moderation explanation failed the publication gate.",
@@ -81,6 +99,27 @@ export async function moderateContent(params: ModerateContentParams, ctx: Servic
         })
         .where(eq(comments.id, params.targetId));
     }
+    if (nextStatus === "hidden") {
+      // Rolling summaries carry earlier text forward, so every live summary of the thread goes.
+      const threadId =
+        params.targetType === "thread"
+          ? params.targetId
+          : (
+              await tx
+                .select({ threadId: comments.threadId })
+                .from(comments)
+                .where(eq(comments.id, params.targetId))
+                .limit(1)
+            )[0]?.threadId;
+      if (threadId) {
+        await tx
+          .update(threadSummaries)
+          .set({ invalidatedAt: now })
+          .where(
+            and(eq(threadSummaries.threadId, threadId), isNull(threadSummaries.invalidatedAt)),
+          );
+      }
+    }
     const [decision] = await tx
       .insert(moderationDecisions)
       .values({
@@ -88,6 +127,7 @@ export async function moderateContent(params: ModerateContentParams, ctx: Servic
         targetId: params.targetId,
         action: params.action,
         explanation: params.explanation.trim(),
+        details: report.outcome === "pass" ? null : { gateCodes: report.codes },
         actorAccountId: actorAccountId(params.actor),
         createdAt: now,
       })

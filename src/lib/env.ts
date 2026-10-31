@@ -28,6 +28,11 @@ const envSchema = z.object({
   AGORA_ADMIN_PASSWORD: z.string().min(1).optional(),
   AGORA_PUBLIC_BASE_URL: z.string().url().default("http://localhost:3000"),
   OPENAI_API_KEY: z.string().min(1).optional(),
+  AGORA_OPENAI_MODEL: z.string().min(1).default("gpt-5.6-luna"),
+  AGORA_OPENAI_REASONING_EFFORT: z
+    .enum(["none", "low", "medium", "high", "xhigh", "max"])
+    .default("low"),
+  AGORA_OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
 });
 
 export type Env = z.infer<typeof envSchema>;

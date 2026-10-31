@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { STANDARD_PRESET } from "@/lib/config/presets";
 import type { AgoraConfig } from "@/lib/config/schema";
 import { createDb, type Db, type DbHandle } from "@/lib/db/client";
@@ -25,34 +24,7 @@ export function testDb(): Db {
   return testHandle().db;
 }
 
-export const APP_TABLES = [
-  "citations",
-  "votes",
-  "comments",
-  "threads",
-  "content_revisions",
-  "moderation_decisions",
-  "agent_actions",
-  "persona_memories",
-  "community_memberships",
-  "personas",
-  "communities",
-  "articles",
-  "sources",
-  "sessions",
-  "login_attempts",
-  "config_revisions",
-  "worker_heartbeats",
-  "accounts",
-];
-
-export async function truncateAll(db: Db): Promise<void> {
-  await db.execute(
-    sql.raw(
-      `TRUNCATE TABLE ${APP_TABLES.map((t) => `"${t}"`).join(", ")} RESTART IDENTITY CASCADE`,
-    ),
-  );
-}
+export { APP_TABLES, truncateAll } from "@/lib/simulation/tables";
 
 /** A controllable clock so tests can move time forward deterministically. */
 export class TestClock {
@@ -69,7 +41,14 @@ export function makeContext(
 ): ServiceContext & { clock: TestClock } {
   const clock = options.clock ?? new TestClock();
   const config = options.config ?? structuredClone(STANDARD_PRESET);
-  return { db, config, providers: createProviders("mock"), now: clock.now, clock };
+  return {
+    db,
+    config,
+    providers: createProviders("mock"),
+    origin: "system",
+    now: clock.now,
+    clock,
+  };
 }
 
 export interface MinimalFixture {

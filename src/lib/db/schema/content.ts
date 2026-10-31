@@ -216,3 +216,27 @@ export const citations = pgTable(
     index("citations_article_idx").on(table.articleId),
   ],
 );
+
+/** Rolling summary of a long thread; each revision supersedes the previous one. */
+export const threadSummaries = pgTable(
+  "thread_summaries",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    threadId: uuid()
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    revision: integer().notNull(),
+    body: text().notNull(),
+    script: scriptEnum().notNull(),
+    coversCommentCount: integer().notNull(),
+    lastCommentAt: timestamp({ withTimezone: true }),
+    sourceArticleIds: uuid().array().notNull().default([]),
+    actionId: uuid(),
+    /** Set when content the summary covered was hidden; an invalidated summary is never shown or carried forward. */
+    invalidatedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("thread_summaries_thread_revision_idx").on(table.threadId, table.revision),
+  ],
+);

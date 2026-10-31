@@ -36,6 +36,8 @@ export interface Usage {
   outputTokens: number;
   /** Reasoning tokens are billed as output where the provider reports them. */
   reasoningTokens: number;
+  /** Input tokens served from the provider's prompt cache (a subset of inputTokens). */
+  cachedInputTokens: number;
   estimatedCostUsd: number;
 }
 
@@ -43,8 +45,20 @@ export const ZERO_USAGE: Usage = {
   inputTokens: 0,
   outputTokens: 0,
   reasoningTokens: 0,
+  cachedInputTokens: 0,
   estimatedCostUsd: 0,
 };
+
+/** Deterministic synthetic usage for mocks: about three characters per token, no cost. */
+export function syntheticUsage(request: unknown, outputText: string): Usage {
+  return {
+    inputTokens: Math.ceil(JSON.stringify(request).length / 3),
+    outputTokens: Math.ceil(outputText.length / 3),
+    reasoningTokens: 0,
+    cachedInputTokens: 0,
+    estimatedCostUsd: 0,
+  };
+}
 
 export interface PersonaBrief {
   id: string;
@@ -81,6 +95,8 @@ export interface GenerationRequest {
     community: { slug: string; name: string; description: string };
     topicHint?: string;
     threadTitle?: string;
+    /** The thread's opening post (published text only, truncated), for replies and summaries. */
+    threadBody?: string;
     threadSummary?: string;
     parentChain?: ConversationTurn[];
     recentComments?: ConversationTurn[];
@@ -93,6 +109,10 @@ export interface GenerationRequest {
   /** Stable key (the action key) so a mock is reproducible and a retry is identical. */
   seed: string;
   maxOutputTokens: number;
+  /** Length limit for the body, so a live model can be told. */
+  maxBodyCharacters: number;
+  /** Feedback for the one paid repair attempt: the previous draft and the gate codes it failed. */
+  repair?: { previousTitle?: string; previousBody: string; codes: string[] };
 }
 
 export interface GenerationResult {
@@ -101,6 +121,8 @@ export interface GenerationResult {
   script: ContentScript;
   /** Fact ids the text relies on; the gate rejects ids that were not offered. */
   evidenceIds: string[];
+  /** Private note (at most 200 characters) the persona keeps as memory; never public. */
+  memoryNote?: string;
   usage: Usage;
   provider: string;
   model: string;
@@ -177,22 +199,28 @@ export interface SearchResult {
   provider: string;
 }
 
+// Every provider names its model up front so the cost gateway can price a call
+// before dispatching it. The optional signal lets the gateway enforce a timeout.
+
 export interface TextGenerationProvider {
   readonly name: string;
+  readonly model: string;
   readonly configured: boolean;
-  generate(request: GenerationRequest): Promise<GenerationResult>;
+  generate(request: GenerationRequest, signal?: AbortSignal): Promise<GenerationResult>;
 }
 
 export interface StructuredValidationProvider {
   readonly name: string;
+  readonly model: string;
   readonly configured: boolean;
-  validate(request: ValidationRequest): Promise<ValidationVerdict>;
+  validate(request: ValidationRequest, signal?: AbortSignal): Promise<ValidationVerdict>;
 }
 
 export interface NewsSearchProvider {
   readonly name: string;
+  readonly model: string;
   readonly configured: boolean;
-  search(request: SearchRequest): Promise<SearchResult>;
+  search(request: SearchRequest, signal?: AbortSignal): Promise<SearchResult>;
 }
 
 export interface ProviderSet {
@@ -207,5 +235,27 @@ export class ProviderNotConfiguredError extends Error {
   constructor(public readonly capability: keyof Omit<ProviderSet, "mode">) {
     super(`Provider for ${capability} is not configured.`);
     this.name = "ProviderNotConfiguredError";
+  }
+}
+
+/**
+ * How a failed provider call was billed. "not_billed": the provider refused it
+ * before doing work (a 4xx, a refused connection). "billed": it did work and
+ * reported usage (an incomplete or refused response). "ambiguous": the outcome
+ * is unknown (a timeout, a dropped connection), so the cost gateway counts the
+ * full estimate until a reconciliation settles it.
+ */
+export type ProviderBilling = "not_billed" | "billed" | "ambiguous";
+
+/** Raised by adapters so the cost gateway and the job runner know what a failure cost and whether to retry. */
+export class ProviderCallError extends Error {
+  constructor(
+    message: string,
+    public readonly billing: ProviderBilling,
+    public readonly retryable: boolean,
+    public readonly details: { status?: number; code?: string; usage?: Usage } = {},
+  ) {
+    super(message);
+    this.name = "ProviderCallError";
   }
 }

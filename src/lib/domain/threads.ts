@@ -113,7 +113,11 @@ export async function createThread(
       claimedEvidenceIds: claimedIds,
       seed: params.actionKey,
     },
-    { config: ctx.config, validator: ctx.providers.validation },
+    {
+      config: ctx.config,
+      validator: ctx.providers.validation,
+      transientValidatorErrors: ctx.transientValidatorErrors,
+    },
   );
 
   return ctx.db.transaction(async (tx) => {

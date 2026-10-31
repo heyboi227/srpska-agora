@@ -1,0 +1,1 @@
+ALTER TABLE "thread_summaries" ADD COLUMN "invalidated_at" timestamp with time zone;

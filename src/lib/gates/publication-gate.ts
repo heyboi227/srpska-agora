@@ -1,5 +1,7 @@
 import type { AgoraConfig } from "@/lib/config/schema";
+import { BudgetRefusedError } from "@/lib/costs/gateway";
 import {
+  ProviderCallError,
   ProviderNotConfiguredError,
   type GateKind,
   type StructuredValidationProvider,
@@ -58,6 +60,26 @@ export interface GateReport {
 export interface GateDependencies {
   config: AgoraConfig;
   validator: StructuredValidationProvider;
+  /**
+   * What to do when the validator fails transiently (busy gateway, retryable
+   * provider error, timeout). "quarantine" (the default) records a
+   * validator_unavailable decision; "throw" rethrows so a queued job can retry.
+   */
+  transientValidatorErrors?: "quarantine" | "throw";
+}
+
+/** A failure that is likely to pass on a later attempt rather than a verdict about the draft. */
+export function isTransientValidatorError(error: unknown): boolean {
+  if (error instanceof BudgetRefusedError) return error.reason === "busy";
+  if (error instanceof ProviderCallError) return error.retryable;
+  if (error instanceof Error) {
+    return (
+      error.name === "AbortError" ||
+      error.name === "TimeoutError" ||
+      /timed out/i.test(error.message)
+    );
+  }
+  return false;
 }
 
 const TITLE_KINDS = new Set<GateKind>(["thread", "revision_thread"]);
@@ -80,11 +102,18 @@ function bodyLimit(kind: GateKind, config: AgoraConfig): number {
   }
 }
 
-export async function runPublicationGate(
-  input: GateInput,
-  deps: GateDependencies,
-): Promise<GateReport> {
-  const { config } = deps;
+export interface FreeChecks {
+  codes: string[];
+  /** Codes that block publication on their own (everything except soft codes). */
+  blocking: string[];
+  script: "Latin" | "Cyrillic" | null;
+  language: LanguageAssessment;
+  topical: TopicalCheck;
+  limits: { maxTitle: number | null; maxBody: number };
+}
+
+/** Steps 1 to 5: every check that costs nothing and needs no provider. */
+export function runFreeChecks(input: GateInput, config: AgoraConfig): FreeChecks {
   const codes: string[] = [];
   const title = input.title?.trim() ?? "";
   const body = input.body.trim();
@@ -147,6 +176,19 @@ export async function runPublicationGate(
   const limits = { maxTitle, maxBody };
   // Soft codes are recorded but do not block on their own.
   const blocking = codes.filter((code) => !SOFT_CODES.has(code));
+  return { codes, blocking, script, language, topical, limits };
+}
+
+export async function runPublicationGate(
+  input: GateInput,
+  deps: GateDependencies,
+): Promise<GateReport> {
+  const { config } = deps;
+  const { codes, blocking, script, language, topical, limits } = runFreeChecks(input, config);
+  const title = input.title?.trim() ?? "";
+  const body = input.body.trim();
+  const needsTitle = TITLE_KINDS.has(input.kind);
+  const claimed = input.claimedEvidenceIds ?? [];
   if (blocking.length > 0) {
     return { outcome: "quarantine", codes, script, language, topical, validator: null, limits };
   }
@@ -166,10 +208,14 @@ export async function runPublicationGate(
       maxOutputTokens: config.budget.validationMaxBilledOutputTokens,
     });
   } catch (error) {
+    if (deps.transientValidatorErrors === "throw" && isTransientValidatorError(error))
+      throw error;
     codes.push(
-      error instanceof ProviderNotConfiguredError
-        ? "validator_not_configured"
-        : "validator_unavailable",
+      error instanceof BudgetRefusedError
+        ? "validator_budget_refused"
+        : error instanceof ProviderNotConfiguredError
+          ? "validator_not_configured"
+          : "validator_unavailable",
     );
     return { outcome: "quarantine", codes, script, language, topical, validator: null, limits };
   }
@@ -185,3 +231,8 @@ export async function runPublicationGate(
 
 /** Recorded for transparency but not sufficient to block publication alone. */
 const SOFT_CODES = new Set(["foreign_cyrillic_letters"]);
+
+/** True for a code that is recorded but does not block publication on its own. */
+export function isSoftCode(code: string): boolean {
+  return SOFT_CODES.has(code);
+}

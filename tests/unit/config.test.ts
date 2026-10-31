@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPreset, QUIET_PRESET, STANDARD_PRESET } from "@/lib/config/presets";
-import { safeParseConfig } from "@/lib/config/schema";
+import { DEFAULT_SCHEDULER_CONFIG, safeParseConfig } from "@/lib/config/schema";
 
 describe("configuration presets", () => {
   it("standard preset matches the pilot policy", () => {
@@ -52,5 +52,24 @@ describe("configuration presets", () => {
     };
     wrongParticipation.product.participation = "humans_too";
     expect(safeParseConfig(wrongParticipation).success).toBe(false);
+  });
+
+  it("fills scheduler defaults for revisions stored without the section", () => {
+    const legacy = structuredClone(STANDARD_PRESET) as unknown as Record<string, unknown>;
+    delete legacy.scheduler;
+    const parsed = safeParseConfig(legacy);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.scheduler).toEqual(DEFAULT_SCHEDULER_CONFIG);
+  });
+
+  it("rejects out-of-range scheduler values", () => {
+    const bad = structuredClone(STANDARD_PRESET);
+    bad.scheduler.maxActionsPerTick = 11;
+    expect(safeParseConfig(bad).success).toBe(false);
+  });
+
+  it("both presets contain the scheduler section", () => {
+    expect(STANDARD_PRESET.scheduler).toEqual(DEFAULT_SCHEDULER_CONFIG);
+    expect(QUIET_PRESET.scheduler).toEqual(DEFAULT_SCHEDULER_CONFIG);
   });
 });

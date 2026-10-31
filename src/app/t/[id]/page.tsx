@@ -7,13 +7,14 @@ import { CitationList } from "@/components/citation-list";
 import { CommentTree } from "@/components/comment-tree";
 import { ForumText } from "@/components/forum-text";
 import { PersonaBadge } from "@/components/persona-badge";
+import { ThreadSummary } from "@/components/thread-summary";
 import { Badge } from "@/components/ui/badge";
 import { VoteBadge } from "@/components/vote-badge";
 import { getDb } from "@/lib/db/client";
 import { latestModerationDecision } from "@/lib/domain/moderation";
 import { listRevisions } from "@/lib/domain/revisions";
 import { loadCommentTree } from "@/lib/queries/comments";
-import { getThreadDetail } from "@/lib/queries/threads";
+import { getLatestThreadSummary, getThreadDetail } from "@/lib/queries/threads";
 import { formatBelgradeDateTime, formatRelative } from "@/lib/time";
 import { pluralSr } from "@/lib/utils";
 import { isAdminViewer } from "@/server/auth";
@@ -34,11 +35,14 @@ export default async function ThreadPage(props: Props) {
   const thread = await getThreadDetail(db, id);
   if (!thread || thread.status === "quarantined") notFound();
   const isAdmin = await isAdminViewer();
-  const [tree, revisions, decision] = await Promise.all([
+  const [tree, revisions, decision, summary] = await Promise.all([
     loadCommentTree(db, thread.id),
     listRevisions(db, "thread", thread.id),
     thread.status === "hidden"
       ? latestModerationDecision(db, "thread", thread.id)
+      : Promise.resolve(null),
+    thread.status === "published"
+      ? getLatestThreadSummary(db, thread.id)
       : Promise.resolve(null),
   ]);
 
@@ -137,6 +141,8 @@ export default async function ThreadPage(props: Props) {
           </details>
         )}
       </article>
+
+      {summary && <ThreadSummary summary={summary} />}
 
       <section
         id="komentari"

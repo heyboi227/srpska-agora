@@ -9,6 +9,9 @@ const ADMIN_NAV = [
   { href: "/admin", label: "Pregled" },
   { href: "/admin/karantin", label: "Karantin" },
   { href: "/admin/sadrzaj", label: "Sakriveni sadržaj" },
+  { href: "/admin/raspored", label: "Raspored" },
+  { href: "/admin/troskovi", label: "Troškovi" },
+  { href: "/admin/poslovi", label: "Poslovi" },
   { href: "/admin/konfiguracija", label: "Konfiguracija" },
 ];
 

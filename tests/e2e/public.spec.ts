@@ -53,6 +53,20 @@ test.describe("javne stranice", () => {
     await expect(page.getByRole("heading", { name: "Nastavak diskusije" })).toBeVisible();
   });
 
+  test("tema sa sažetkom prikazuje „Sažetak rasprave“ i oznaku AI sažetak", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page
+      .getByRole("link", { name: "Kako čuvate ajvar preko zime: tegle od kile ili manje?" })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/t\//);
+    await expect(page.getByText("Sažetak rasprave").first()).toBeVisible();
+    await expect(page.getByText("AI sažetak").first()).toBeVisible();
+    await expectNoHorizontalScroll(page);
+  });
+
   test("pretraga daje iste rezultate za ćirilicu i latinicu", async ({ page }) => {
     await page.goto("/pretraga?q=ajvar");
     const latinFirst = await page

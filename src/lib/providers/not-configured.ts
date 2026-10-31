@@ -20,6 +20,7 @@ import {
 
 export class NotConfiguredGeneration implements TextGenerationProvider {
   readonly name = "not-configured";
+  readonly model = "none";
   readonly configured = false;
   async generate(_request: GenerationRequest): Promise<GenerationResult> {
     throw new ProviderNotConfiguredError("generation");
@@ -28,6 +29,7 @@ export class NotConfiguredGeneration implements TextGenerationProvider {
 
 export class NotConfiguredValidation implements StructuredValidationProvider {
   readonly name = "not-configured";
+  readonly model = "none";
   readonly configured = false;
   async validate(_request: ValidationRequest): Promise<ValidationVerdict> {
     throw new ProviderNotConfiguredError("validation");
@@ -36,6 +38,7 @@ export class NotConfiguredValidation implements StructuredValidationProvider {
 
 export class NotConfiguredSearch implements NewsSearchProvider {
   readonly name = "not-configured";
+  readonly model = "none";
   readonly configured = false;
   async search(_request: SearchRequest): Promise<SearchResult> {
     throw new ProviderNotConfiguredError("search");

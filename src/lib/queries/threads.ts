@@ -1,6 +1,14 @@
-import { and, desc, eq, gt, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { DbOrTx } from "@/lib/db/client";
-import { citations, articles, sources, communities, personas, threads } from "@/lib/db/schema";
+import {
+  citations,
+  articles,
+  sources,
+  communities,
+  personas,
+  threads,
+  threadSummaries,
+} from "@/lib/db/schema";
 import { decodeCursor, encodeCursor } from "./cursor";
 
 export type FeedSort = "novo" | "aktivno" | "najbolje";
@@ -264,4 +272,67 @@ export async function listThreadsByAuthor(
     .orderBy(desc(threads.createdAt))
     .limit(limit);
   return rows.map((row) => toItem(row as Row));
+}
+
+export interface ThreadSummaryView {
+  body: string;
+  script: "Latin" | "Cyrillic";
+  coversCommentCount: number;
+  revision: number;
+  createdAt: Date;
+  /** Articles the summary relies on, shaped for the citation list (no claim text). */
+  sources: {
+    claimExcerpt: string;
+    title: string;
+    canonicalUrl: string;
+    publisher: string;
+    isFixture: boolean;
+    publishedAt: Date;
+  }[];
+}
+
+/** The newest rolling summary of a thread with its sources, or null when none exists. */
+export async function getLatestThreadSummary(
+  db: DbOrTx,
+  threadId: string,
+): Promise<ThreadSummaryView | null> {
+  const rows = await db
+    .select()
+    .from(threadSummaries)
+    .where(and(eq(threadSummaries.threadId, threadId), isNull(threadSummaries.invalidatedAt)))
+    .orderBy(desc(threadSummaries.revision))
+    .limit(1);
+  const summary = rows[0];
+  if (!summary) return null;
+  const sourceRows =
+    summary.sourceArticleIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: articles.id,
+            title: articles.title,
+            canonicalUrl: articles.canonicalUrl,
+            publishedAt: articles.publishedAt,
+            isFixture: articles.isFixture,
+            publisher: sources.publisherName,
+          })
+          .from(articles)
+          .innerJoin(sources, eq(sources.id, articles.sourceId))
+          .where(inArray(articles.id, summary.sourceArticleIds))
+          .orderBy(desc(articles.publishedAt), articles.id);
+  return {
+    body: summary.body,
+    script: summary.script,
+    coversCommentCount: summary.coversCommentCount,
+    revision: summary.revision,
+    createdAt: summary.createdAt,
+    sources: sourceRows.map((row) => ({
+      claimExcerpt: "",
+      title: row.title,
+      canonicalUrl: row.canonicalUrl,
+      publisher: row.publisher,
+      isFixture: row.isFixture,
+      publishedAt: row.publishedAt,
+    })),
+  };
 }

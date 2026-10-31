@@ -1,7 +1,7 @@
 import { isAcceptableLanguage } from "@/lib/serbian/detect";
 import { normalizeForSearch } from "@/lib/serbian/normalize";
 import {
-  ZERO_USAGE,
+  syntheticUsage,
   type StructuredValidationProvider,
   type ValidationRequest,
   type ValidationVerdict,
@@ -33,6 +33,7 @@ const TOPICAL_KINDS = new Set(["thread", "revision_thread", "summary"]);
 
 export class MockValidationProvider implements StructuredValidationProvider {
   readonly name = "mock";
+  readonly model = "mock-deterministic-v1";
   readonly configured = true;
 
   async validate(request: ValidationRequest): Promise<ValidationVerdict> {
@@ -59,6 +60,10 @@ export class MockValidationProvider implements StructuredValidationProvider {
     if (!moderationOk) reasons.push("validator:moderation");
 
     const verdict = reasons.length === 0 ? "pass" : "reject";
+    const explanation =
+      verdict === "pass"
+        ? "Tekst zadovoljava jezičke, tematske i moderatorske provere (mock)."
+        : `Tekst nije prošao provere: ${reasons.join(", ")} (mock).`;
     return {
       verdict,
       languageOk,
@@ -66,11 +71,8 @@ export class MockValidationProvider implements StructuredValidationProvider {
       evidenceOk,
       moderationOk,
       reasons,
-      explanation:
-        verdict === "pass"
-          ? "Tekst zadovoljava jezičke, tematske i moderatorske provere (mock)."
-          : `Tekst nije prošao provere: ${reasons.join(", ")} (mock).`,
-      usage: ZERO_USAGE,
+      explanation,
+      usage: syntheticUsage(request, explanation + reasons.join("")),
       provider: this.name,
       model: "mock-deterministic-v1",
     };

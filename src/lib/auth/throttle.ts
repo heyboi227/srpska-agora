@@ -85,11 +85,13 @@ export async function clearLoginFailures(db: DbOrTx, keys: string[]): Promise<vo
   await db.delete(loginAttempts).where(inArray(loginAttempts.key, keys));
 }
 
-export async function pruneLoginAttempts(db: DbOrTx, now: Date = new Date()): Promise<void> {
+export async function pruneLoginAttempts(db: DbOrTx, now: Date = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  await db
+  const rows = await db
     .delete(loginAttempts)
     .where(
       sql`${loginAttempts.updatedAt} < ${cutoff} and (${loginAttempts.lockedUntil} is null or ${loginAttempts.lockedUntil} < ${now})`,
-    );
+    )
+    .returning({ key: loginAttempts.key });
+  return rows.length;
 }

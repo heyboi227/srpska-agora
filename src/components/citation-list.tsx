@@ -43,7 +43,9 @@ export function CitationList({
             {cite.publishedAt && (
               <span className="text-text-muted">({formatBelgradeDate(cite.publishedAt)})</span>
             )}
-            <span className="w-full text-text-muted">Podržava: „{cite.claimExcerpt}“</span>
+            {cite.claimExcerpt && (
+              <span className="w-full text-text-muted">Podržava: „{cite.claimExcerpt}“</span>
+            )}
           </li>
         ))}
       </ol>

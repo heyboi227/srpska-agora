@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import type { DbOrTx } from "@/lib/db/client";
 import {
   accounts,
@@ -10,6 +10,7 @@ import {
   type PersonaLimits,
 } from "@/lib/db/schema";
 import { runPublicationGate } from "@/lib/gates/publication-gate";
+import { findEncodingIssues } from "@/lib/serbian/script";
 import { actorAccountId, requireAdminOrSystem, type Actor } from "./actors";
 import type { ServiceContext } from "./context";
 import { DomainError } from "./errors";
@@ -178,25 +179,78 @@ export async function rememberParticipation(
     createdAt: now,
     expiresAt: new Date(now.getTime() + MEMORY_TTL_MS),
   });
+  await prunePersonaMemories(tx, params.personaId, now);
+}
+
+/** Deletes the persona's expired entries and keeps only the newest ones within the bound. */
+async function prunePersonaMemories(tx: DbOrTx, personaId: string, now: Date): Promise<void> {
   await tx
     .delete(personaMemories)
-    .where(
-      and(eq(personaMemories.personaId, params.personaId), lt(personaMemories.expiresAt, now)),
-    );
+    .where(and(eq(personaMemories.personaId, personaId), lt(personaMemories.expiresAt, now)));
   const keep = tx
     .select({ id: personaMemories.id })
     .from(personaMemories)
-    .where(eq(personaMemories.personaId, params.personaId))
+    .where(eq(personaMemories.personaId, personaId))
     .orderBy(desc(personaMemories.createdAt))
     .limit(MAX_MEMORIES_PER_PERSONA);
   await tx
     .delete(personaMemories)
     .where(
       and(
-        eq(personaMemories.personaId, params.personaId),
+        eq(personaMemories.personaId, personaId),
         sql`${personaMemories.id} not in (${keep})`,
       ),
     );
+}
+
+export const MEMORY_VIEW_MAX_CHARACTERS = 200;
+
+/**
+ * Stores a persona's private note (the generator's memoryNote) as a "view".
+ * Empty text and text with encoding problems are ignored, never stored.
+ */
+export async function rememberView(
+  tx: DbOrTx,
+  params: { personaId: string; threadId?: string | null; content: string },
+  now: Date,
+): Promise<boolean> {
+  const content = params.content.trim().slice(0, MEMORY_VIEW_MAX_CHARACTERS).trim();
+  if (content.length === 0 || findEncodingIssues(content).length > 0) return false;
+  await rememberParticipation(
+    tx,
+    { personaId: params.personaId, threadId: params.threadId, content, kind: "view" },
+    now,
+  );
+  return true;
+}
+
+/** Cleanup job: drops every expired entry, then trims each persona to the newest bound. */
+export async function pruneExpiredMemories(
+  db: DbOrTx,
+  now: Date,
+): Promise<{ expired: number; trimmed: number }> {
+  const expired = await db
+    .delete(personaMemories)
+    .where(lt(personaMemories.expiresAt, now))
+    .returning({ id: personaMemories.id });
+  const ranked = db
+    .select({
+      id: personaMemories.id,
+      rank: sql<number>`row_number() over (partition by ${personaMemories.personaId} order by ${personaMemories.createdAt} desc, ${personaMemories.id} desc)`.as(
+        "rank",
+      ),
+    })
+    .from(personaMemories)
+    .as("ranked");
+  const excess = db
+    .select({ id: ranked.id })
+    .from(ranked)
+    .where(sql`${ranked.rank} > ${MAX_MEMORIES_PER_PERSONA}`);
+  const trimmed = await db
+    .delete(personaMemories)
+    .where(inArray(personaMemories.id, excess))
+    .returning({ id: personaMemories.id });
+  return { expired: expired.length, trimmed: trimmed.length };
 }
 
 export async function listPersonaMemories(db: DbOrTx, personaId: string, limit = 20) {

@@ -1,7 +1,9 @@
 import { SeededRandom } from "@/lib/random";
 import { latinToCyrillic } from "@/lib/serbian/latin-to-cyrillic";
+import { findTopicalMarkers } from "@/lib/serbian/topics";
+import { cyrillicToLatin } from "@/lib/serbian/transliterate";
 import {
-  ZERO_USAGE,
+  syntheticUsage,
   type GenerationRequest,
   type GenerationResult,
   type Intent,
@@ -17,6 +19,14 @@ import {
  * Templates avoid gendered past-tense forms so any persona can voice them, and
  * avoid words whose "nj" or "dž" are not digraphs so Cyrillic conversion is safe.
  */
+
+/** Each names a place or concept from the topical marker list. */
+const TOPICAL_ANCHORS: readonly string[] = [
+  "Zanima me kako to izgleda u Srbiji danas.",
+  "Pitam se da li je u Beogradu drugačije nego u unutrašnjosti.",
+  "Zanimaju me iskustva iz Vojvodine i Šumadije.",
+  "Kako to vidite vi, iz raznih krajeva Srbije?",
+];
 
 const OPENERS: Record<Intent, readonly string[]> = {
   introduce_topic: [
@@ -89,12 +99,63 @@ function styleSentence(request: GenerationRequest): string {
   return "Iz ugla običnog čitaoca, ovo je važno i za lokalnu zajednicu.";
 }
 
+const SUMMARY_VERDICTS: readonly string[] = [
+  "Učesnici se u osnovi slažu da je tema važna, ali tumače je različito.",
+  "Mišljenja su podeljena, a razlike se uglavnom svode na to kako se čitaju dostupni podaci.",
+  "Neka pitanja iz rasprave za sada ostaju otvorena.",
+];
+
+/** Neutral recap of the discussion: participants, one even-handed sentence, and the sources. */
+function summaryBody(
+  request: GenerationRequest,
+  rng: SeededRandom,
+): { body: string; ids: string[] } {
+  const { threadTitle, recentComments = [], facts = [], threadSummary } = request.context;
+  const names = [...new Set(recentComments.map((turn) => turn.author))].slice(0, 4);
+  const parts: string[] = [
+    `Sažetak rasprave o temi „${threadTitle ?? request.context.community.name}“.`,
+  ];
+  if (threadSummary) parts.push("Ovo dopunjuje prethodni sažetak novijim komentarima.");
+  if (names.length >= 2) {
+    parts.push(
+      `U razgovoru su učestvovali ${names.slice(0, -1).join(", ")} i ${names.at(-1)}.`,
+    );
+  } else if (names.length === 1) {
+    parts.push(`U razgovoru je učestvovao ${names[0]}.`);
+  }
+  parts.push(rng.pick(SUMMARY_VERDICTS));
+  parts.push("Ono što nije potvrđeno izvorima treba uzeti sa rezervom.");
+  const publishers = [...new Set(facts.map((fact) => fact.publisher))];
+  parts.push(
+    publishers.length > 0
+      ? `Izvori: ${publishers.join(", ")}.`
+      : "Izvori: u ovoj raspravi nisu navedeni.",
+  );
+  return { body: parts.join(" "), ids: facts.map((fact) => fact.id) };
+}
+
 export class MockGenerationProvider implements TextGenerationProvider {
   readonly name = "mock";
+  readonly model = "mock-deterministic-v1";
   readonly configured = true;
 
   async generate(request: GenerationRequest): Promise<GenerationResult> {
-    const rng = new SeededRandom(request.seed);
+    if (request.purpose === "summary") {
+      const summary = summaryBody(request, new SeededRandom(request.seed));
+      const script = request.persona.scriptPreference;
+      // Names and the title may be in the other script; one script per text.
+      const body =
+        script === "Cyrillic" ? latinToCyrillic(summary.body) : cyrillicToLatin(summary.body);
+      return {
+        body,
+        script,
+        evidenceIds: summary.ids,
+        usage: syntheticUsage(request, body),
+        provider: this.name,
+        model: "mock-deterministic-v1",
+      };
+    }
+    const rng = new SeededRandom(request.repair ? `${request.seed}:repair` : request.seed);
     const parts: string[] = [];
     const usedFacts: string[] = [];
 
@@ -125,7 +186,13 @@ export class MockGenerationProvider implements TextGenerationProvider {
     if (request.purpose === "thread") {
       const hint = request.context.topicHint ?? request.context.community.name;
       title = `Razgovor: ${hint}`;
-      body = `${body}\n\nZajednica: ${request.context.community.name}.`;
+      // A new thread must tie to Serbia (the gate's topical check). When the
+      // template names nothing Serbian, add a plain, gender-neutral anchor.
+      const communityName = request.context.community.name;
+      if (!findTopicalMarkers(`${title}\n${body}\n${communityName}`).hit) {
+        body = `${body} ${rng.pick(TOPICAL_ANCHORS)}`;
+      }
+      body = `${body}\n\nZajednica: ${communityName}.`;
     }
     if (request.purpose === "revision" && request.context.currentBody) {
       const reason = request.context.revisionReason ?? "preciznije formulisano";
@@ -136,14 +203,34 @@ export class MockGenerationProvider implements TextGenerationProvider {
     if (script === "Cyrillic") {
       body = latinToCyrillic(body);
       if (title) title = latinToCyrillic(title);
+    } else {
+      // Quoted parents and community names may be Cyrillic; a Latin persona writes one script.
+      body = cyrillicToLatin(body);
+      if (title) title = cyrillicToLatin(title);
     }
 
+    let memoryNote: string | undefined;
+    if (request.purpose === "thread" || request.purpose === "reply") {
+      const subject = (title ?? request.context.threadTitle ?? request.context.community.name)
+        .replace(/[„“”"]/g, "")
+        .slice(0, 120);
+      // Gender-neutral on purpose: personas of any gender share this template.
+      memoryNote =
+        request.purpose === "thread"
+          ? `Otvorena tema „${subject}“.`
+          : `Komentar u temi „${subject}“.`;
+      memoryNote =
+        script === "Cyrillic" ? latinToCyrillic(memoryNote) : cyrillicToLatin(memoryNote);
+    }
+
+    const outputText = `${title ?? ""}${body}${memoryNote ?? ""}`;
     return {
       title,
       body,
       script,
       evidenceIds: usedFacts,
-      usage: ZERO_USAGE,
+      memoryNote,
+      usage: syntheticUsage(request, outputText),
       provider: this.name,
       model: "mock-deterministic-v1",
     };

@@ -18,3 +18,9 @@ Thumbs.db
 
 # Local scratch data produced by scripts (never committed).
 .cache/
+
+# Serbian evaluation reports.
+eval-reports/
+
+# Simulation reports
+sim-reports/

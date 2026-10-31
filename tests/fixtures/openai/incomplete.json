@@ -1,0 +1,19 @@
+{
+  "id": "resp_3",
+  "object": "response",
+  "status": "incomplete",
+  "incomplete_details": {
+    "reason": "max_output_tokens"
+  },
+  "output": [],
+  "usage": {
+    "input_tokens": 900,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 500,
+    "output_tokens_details": {
+      "reasoning_tokens": 500
+    }
+  }
+}

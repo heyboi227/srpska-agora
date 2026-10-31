@@ -82,6 +82,32 @@ export const storageConfigSchema = z.object({
   detailedOperationalAuditRetentionDays: int(7, 730),
 });
 
+export const schedulerConfigSchema = z.object({
+  nightStartHour: int(0, 23),
+  nightEndHour: int(0, 23),
+  nightActivityPercent: int(0, 100),
+  maxActionsPerTick: int(1, 10),
+  jitterSeconds: int(0, 600),
+  jobFreshnessMinutes: int(5, 240),
+  summaryEveryComments: int(5, 50),
+  maxThreadContributionsPerPersonaPerDay: int(1, 10),
+  pairCooldownMinutes: int(0, 240),
+});
+
+export type SchedulerConfig = z.infer<typeof schedulerConfigSchema>;
+
+export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
+  nightStartHour: 23,
+  nightEndHour: 7,
+  nightActivityPercent: 15,
+  maxActionsPerTick: 3,
+  jitterSeconds: 50,
+  jobFreshnessMinutes: 30,
+  summaryEveryComments: 12,
+  maxThreadContributionsPerPersonaPerDay: 3,
+  pairCooldownMinutes: 30,
+};
+
 export const agoraConfigSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -93,6 +119,8 @@ export const agoraConfigSchema = z
     news: newsConfigSchema,
     budget: budgetConfigSchema,
     storage: storageConfigSchema,
+    /** Absent in revisions stored before Phase 2; prefault fills the defaults. */
+    scheduler: schedulerConfigSchema.prefault(DEFAULT_SCHEDULER_CONFIG),
   })
   .superRefine((config, ctx) => {
     if (config.budget.dailyVariableSpendLimit > config.budget.monthlyVariableSpendLimit) {
