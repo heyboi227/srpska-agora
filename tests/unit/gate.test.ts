@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { STANDARD_PRESET } from "@/lib/config/presets";
-import { runPublicationGate, type GateInput } from "@/lib/gates/publication-gate";
+import { BudgetRefusedError } from "@/lib/costs/gateway";
+import { isSoftCode, runPublicationGate, type GateInput } from "@/lib/gates/publication-gate";
+import { ProviderCallError, ProviderNotConfiguredError } from "@/lib/providers/types";
 import { NotConfiguredValidation } from "@/lib/providers/not-configured";
 import { MockValidationProvider, MODERATION_TEST_MARKER } from "@/lib/providers/mock/validator";
 
@@ -145,6 +147,69 @@ describe("runPublicationGate", () => {
     });
     expect(report.outcome).toBe("quarantine");
     expect(report.codes).toContain("validator_not_configured");
+  });
+
+  describe("transient validator failures", () => {
+    const failing = (error: Error) => ({
+      name: "test",
+      model: "test",
+      configured: true,
+      validate: async () => {
+        throw error;
+      },
+    });
+    const run = (error: Error, policy?: "quarantine" | "throw") =>
+      runPublicationGate(serbianThread, {
+        config: STANDARD_PRESET,
+        validator: failing(error),
+        transientValidatorErrors: policy,
+      });
+    const transient = [
+      new BudgetRefusedError("busy", "busy"),
+      new ProviderCallError("overloaded", "not_billed", true, { status: 503 }),
+      new Error("Provider call timed out after 45000 ms"),
+      Object.assign(new Error("aborted"), { name: "AbortError" }),
+    ];
+
+    it("quarantines by default and under the quarantine policy", async () => {
+      for (const error of transient) {
+        const code =
+          error instanceof BudgetRefusedError
+            ? "validator_budget_refused"
+            : "validator_unavailable";
+        expect((await run(error)).codes).toContain(code);
+        expect((await run(error, "quarantine")).outcome).toBe("quarantine");
+      }
+    });
+
+    it("rethrows the original error under the throw policy", async () => {
+      for (const error of transient) {
+        await expect(run(error, "throw")).rejects.toBe(error);
+      }
+    });
+
+    it("keeps the quarantine codes for everything else, even under throw", async () => {
+      const cases: [Error, string][] = [
+        [new BudgetRefusedError("budget_exhausted", "x"), "validator_budget_refused"],
+        [new BudgetRefusedError("paid_paused", "x"), "validator_budget_refused"],
+        [new BudgetRefusedError("no_price", "x"), "validator_budget_refused"],
+        [new ProviderNotConfiguredError("validation"), "validator_not_configured"],
+        [
+          new ProviderCallError("bad request", "not_billed", false, { code: "400" }),
+          "validator_unavailable",
+        ],
+      ];
+      for (const [error, code] of cases) {
+        const report = await run(error, "throw");
+        expect(report.outcome).toBe("quarantine");
+        expect(report.codes).toContain(code);
+      }
+    });
+  });
+
+  it("knows which codes are soft", () => {
+    expect(isSoftCode("foreign_cyrillic_letters")).toBe(true);
+    expect(isSoftCode("validator_unavailable")).toBe(false);
   });
 
   it("checks a revision reason for language too", async () => {

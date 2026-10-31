@@ -8,6 +8,20 @@
       "when": 1789168484716,
       "tag": "0000_initial_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793464384578,
+      "tag": "0001_phase2_autonomy",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793475369595,
+      "tag": "0002_summary_invalidation",
+      "breakpoints": true
     }
   ]
 }

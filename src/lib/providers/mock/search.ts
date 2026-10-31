@@ -12,6 +12,7 @@ import {
  */
 export class MockSearchProvider implements NewsSearchProvider {
   readonly name = "mock";
+  readonly model = "mock-deterministic-v1";
   readonly configured = true;
 
   async search(_request: SearchRequest): Promise<SearchResult> {

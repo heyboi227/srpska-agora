@@ -119,7 +119,7 @@ export async function discardDraftAction(formData: FormData): Promise<void> {
   const session = await requireAdmin();
   const actionId = String(formData.get("actionId"));
   const note = String(formData.get("note") ?? "");
-  const ctx = await createServiceContext();
+  const ctx = await createServiceContext({ origin: "admin" });
   try {
     await discardQuarantinedAction(
       { actor: { kind: "admin", accountId: session.account.id }, actionId, note },
@@ -156,7 +156,7 @@ export async function moderateAction(
   if (explanation.length < 10) {
     return { error: "Obrazloženje na srpskom je obavezno (najmanje 10 znakova)." };
   }
-  const ctx = await createServiceContext();
+  const ctx = await createServiceContext({ origin: "admin" });
   try {
     await moderateContent(
       {

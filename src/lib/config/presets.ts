@@ -1,4 +1,4 @@
-import { parseConfig, type AgoraConfig } from "./schema";
+import { DEFAULT_SCHEDULER_CONFIG, parseConfig, type AgoraConfig } from "./schema";
 
 /**
  * The two presets the owner can choose between. Both fit the EUR 15-30 total
@@ -32,6 +32,7 @@ const shared = {
     minimumReplyCooldownMinutes: 10,
     maxConsecutivePairReplies: 4,
   },
+  scheduler: DEFAULT_SCHEDULER_CONFIG,
   storage: {
     databaseRelationsSoftLimitGib: 8,
     fetchCacheLimitMib: 256,
@@ -77,8 +78,8 @@ export const STANDARD_PRESET: AgoraConfig = parseConfig({
     accountingCurrency: "USD",
     dailyVariableSpendLimit: 0.5,
     monthlyVariableSpendLimit: 15,
-    generationMaxBilledOutputTokens: 800,
-    validationMaxBilledOutputTokens: 300,
+    generationMaxBilledOutputTokens: 1200,
+    validationMaxBilledOutputTokens: 800,
   },
 });
 
@@ -105,8 +106,8 @@ export const QUIET_PRESET: AgoraConfig = parseConfig({
     accountingCurrency: "USD",
     dailyVariableSpendLimit: 0.23,
     monthlyVariableSpendLimit: 7,
-    generationMaxBilledOutputTokens: 800,
-    validationMaxBilledOutputTokens: 300,
+    generationMaxBilledOutputTokens: 1200,
+    validationMaxBilledOutputTokens: 800,
   },
 });
 

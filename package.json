@@ -31,6 +31,8 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "docker compose down -v && npm run db:up && npm run db:migrate && npm run db:seed",
     "admin:create": "tsx scripts/create-admin.ts",
+    "eval:serbian": "tsx scripts/eval-serbian.ts",
+    "sim:48h": "tsx scripts/sim-48h.ts",
     "verify": "npm run typecheck && npm run lint && npm run format && npm run test && npm run build"
   },
   "dependencies": {

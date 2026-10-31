@@ -1,0 +1,27 @@
+{
+  "id": "resp_5",
+  "object": "response",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_1",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"title\": null, \"body\": ",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 800,
+    "output_tokens": 40,
+    "output_tokens_details": {
+      "reasoning_tokens": 10
+    }
+  }
+}

@@ -95,6 +95,13 @@ export async function revokeAllSessions(db: DbOrTx, accountId: string): Promise<
   await db.delete(sessions).where(eq(sessions.accountId, accountId));
 }
 
-export async function deleteExpiredSessions(db: DbOrTx, now: Date = new Date()): Promise<void> {
-  await db.delete(sessions).where(lt(sessions.expiresAt, now));
+export async function deleteExpiredSessions(
+  db: DbOrTx,
+  now: Date = new Date(),
+): Promise<number> {
+  const rows = await db
+    .delete(sessions)
+    .where(lt(sessions.expiresAt, now))
+    .returning({ id: sessions.id });
+  return rows.length;
 }

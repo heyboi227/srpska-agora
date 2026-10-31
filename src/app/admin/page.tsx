@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getActiveConfig, getActiveConfigRevision } from "@/lib/config/service";
+import { systemClock } from "@/lib/clock";
+import { getBudgetStatus, STAGE_LABELS } from "@/lib/costs";
 import { getDb } from "@/lib/db/client";
 import { getEnv } from "@/lib/env";
 import { createProviders, describeProviders } from "@/lib/providers";
@@ -12,6 +14,8 @@ import {
   listRecentActions,
   listWorkerHeartbeats,
 } from "@/lib/queries/admin";
+import { formatMicrosUsd } from "@/lib/queries/costs";
+import { getSchedulerSummary, RUN_STATE_LABELS } from "@/lib/queries/scheduler";
 import { formatBelgradeDateTime, formatRelative } from "@/lib/time";
 import { requireAdmin } from "@/server/auth";
 import { applyPresetAction, setPauseAction } from "./actions";
@@ -31,13 +35,15 @@ const STATUS_VARIANT: Record<string, "ok" | "warn" | "danger" | "default"> = {
 export default async function AdminDashboard() {
   await requireAdmin();
   const db = getDb();
-  const [config, revision, counts, actions, heartbeats] = await Promise.all([
+  const [config, revision, counts, actions, heartbeats, schedulerSummary] = await Promise.all([
     getActiveConfig(db),
     getActiveConfigRevision(db),
     getDashboardCounts(db),
     listRecentActions(db, 25),
     listWorkerHeartbeats(db),
+    getSchedulerSummary(db, new Date()),
   ]);
+  const budget = await getBudgetStatus(db, config, systemClock);
   const providers = describeProviders(
     createProviders(config.runtime.mode, { openaiApiKey: getEnv().OPENAI_API_KEY }),
   );
@@ -149,7 +155,7 @@ export default async function AdminDashboard() {
             <p className="mt-3 text-xs text-text-muted">
               Budžet: {config.budget.dailyVariableSpendLimit} {config.budget.accountingCurrency}{" "}
               dnevno, {config.budget.monthlyVariableSpendLimit}{" "}
-              {config.budget.accountingCurrency} mesečno. Merenje potrošnje stiže u fazi 2.
+              {config.budget.accountingCurrency} mesečno.{" "}
             </p>
           </CardContent>
         </Card>
@@ -181,6 +187,47 @@ export default async function AdminDashboard() {
                 })}
               </ul>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Budžet</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={budget.stage === "normal" ? "ok" : "warn"}>
+                faza: {STAGE_LABELS[budget.stage]}
+              </Badge>
+            </div>
+            <p>
+              Danas potrošeno {formatMicrosUsd(budget.day.spentMicros)} od{" "}
+              {formatMicrosUsd(budget.day.limitMicros)}.
+            </p>
+            <Link href="/admin/troskovi">Troškovi</Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Raspoređivač</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-sm">
+            {schedulerSummary.lastRun ? (
+              <p>
+                Poslednji krug {formatBelgradeDateTime(schedulerSummary.lastRun.tickAt)} (
+                {RUN_STATE_LABELS[schedulerSummary.lastRun.state] ??
+                  schedulerSummary.lastRun.state}
+                ).
+              </p>
+            ) : (
+              <p className="text-text-muted">Raspoređivač još nije radio.</p>
+            )}
+            <p>
+              Danas objavljeno: {schedulerSummary.publishedToday}, neuspeha:{" "}
+              {schedulerSummary.failedToday}.
+            </p>
+            <Link href="/admin/raspored">Raspored</Link>
           </CardContent>
         </Card>
 
